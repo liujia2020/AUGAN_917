@@ -1,2 +1,15 @@
-img_data1/
+# 忽略模型存档
+checkpoints/
+
+# 忽略数据文件
+data/
+*.mat
+
+# 忽略图片
+images/
+
+# 忽略IDE和系统文件
+.idea/
+.vscode/
 __pycache__/
+*.ipynb

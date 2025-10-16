@@ -9,10 +9,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.io as sio
 import time
-from thop import profile
+try:
+    from thop import profile
+    
+except Exception:
+    profile = None  # optional; only used if FLOPs profiling is needed
 # from model_part import Conv,Down,Up
 # from model import Unet
-from cubdl_master.example_picmus_torch import load_datasets,create_network,mk_img,dispaly_img,PlaneWaveData
+from cubdl_master.example_picmus_torch import load_datasets,create_network,mk_img,dispaly_img
 from options.train_options import TrainOptions
 from models import create_model
 from data_process import load_dataset, test_image
@@ -50,10 +54,16 @@ def makedir(): # Making the directory for saving pictures of loss change.
 
 if __name__ == '__main__':
     # Initial setting and correponding parameters
-    plane_wave_data = load_datasets("simulation", "resolution_distorsion", "iq")
-    das, iqdata, xlims, zlims = create_network(plane_wave_data, [1])
+    # PICMUS dataset is only used to get x/z limits for visualization; fall back if missing
+    try:
+        plane_wave_data = load_datasets("simulation", "resolution_distorsion", "iq")
+        das, iqdata, xlims, zlims = create_network(plane_wave_data, [1])
+    except Exception as e:
+        logging.warning("PICMUS dataset not available, skip visualization setup: %s", e)
+        plane_wave_data = None
+        xlims, zlims = [0, 1], [0, 1]
 
-    opt = TrainOptions().parse() # get training options
+    opt = TrainOptions().parse() # 解析命令行参数
 
     # Load the model
     # opt.continue_train = True # whether continue to training
@@ -75,14 +85,11 @@ if __name__ == '__main__':
     img_dataset = load_dataset(opt, opt.phase, 0)
     dataset_len = img_dataset.len
     train_loader = DataLoader(dataset=img_dataset, num_workers=0, batch_size=1, shuffle=True)
-    # lossG = np.zeros(opt.n_epochs+opt.niter_decay)
-    # lossD = np.zeros(opt.n_epochs + opt.niter_decay)
     lossG = np.zeros(opt.n_epochs+opt.niter_decay)
     lossD = np.zeros(opt.n_epochs+opt.niter_decay)
 
     # Image evaluation
     img_eva = image_evaluation()
-
     loss_beta = np.zeros((100))
     index = 0
 
@@ -92,32 +99,27 @@ if __name__ == '__main__':
         iter_data_time = time.time()  # timer for data loading per iteration
         epoch_iter = 0  # the number of training iterations in current epoch, reset to 0 every epoch
         train_bar = tqdm(train_loader)
-        for data, target1, target2, target3, target4, target5 in train_bar:
+
+        for input_image, target_image in train_bar:
             iter_start_time = time.time()  # timer for computation per iteration
-            # if total_iters % opt.print_freq == 0:
-            # t_data = iter_start_time - iter_data_time
-            n1,n2,n3 = data.shape
 
-            # test_image(target5[0],xlims,zlims,1)
-            # test_image(data[0],xlims,zlims,2)
-
-            data = torch.reshape(data,(1,1,n2,n3))
-            target5 = torch.reshape(target5,(1,1,n2,n3))#
+            n1,n2,n3 = input_image.shape
+            input_image = torch.reshape(input_image,(1,1,n2,n3)) # batch_size, channel, height, width
+            target_image = torch.reshape(target_image,(1,1,n2,n3))  # reshape target to NCHW
+            # 将数据送入模型，执行优化
             net = model.netG.to(model.device)
-            data = data.to(model.device)
+            input_image = input_image.to(model.device)
 
             # total_iters = total_iters + opt.batch_size
             epoch_iter = epoch_iter + opt.batch_size
-            model.set_input(data,target5)
-            model.optimize_parameters()  # calculate loss functions, get gradients, update network weights
-            # if epoch % 100 == 0:
-            #     test_image(model.real_A[0].cpu(),model.fake_B[0].cpu(),model.real_B[0].cpu(),xlims,zlims,epoch)
+            
+            model.set_input(input_image, target_image)
+            model.optimize_parameters()  
 
             if total_iters % opt.print_freq == 0:
                 train_bar.set_description(
                     desc='[converting LR images to SR images] lossG: %.4f , lossD: %.4f' % (
                         model.loss_G, model.loss_D))
-
 
             loss_G += model.loss_G
             loss_D += model.loss_D
@@ -135,20 +137,11 @@ if __name__ == '__main__':
                     sio.savemat('beta_data.mat',{'data':loss_beta})
                     aaaa = 1
 
-            # if total_iters % opt.save_latest_freq == 0:   # cache our latest model every <save_latest_freq> iterations
-            #     print('saving the latest model (epoch %d, total_iters %d)' % (epoch, total_iters))
-            #     save_suffix = 'iter_%d' % total_iters if opt.save_by_iter else 'latest'
-            #     model.save_networks(save_suffix)
-
-        # img_eva.evaluate(model.fake_B[0].cpu().detach().numpy(), model.real_B[0].cpu().detach().numpy(), opt)
-
         if epoch % opt.save_epoch_freq == 0:              # cache our model every <save_epoch_freq> epochs
             print('saving the model at the end of epoch %d, iters %d' % (epoch, total_iters))
             model.save_networks('latest')
             model.save_networks(epoch)
-        #if epoch % 1 == 0:
-            #test_image(model.real_A[0].cpu(), model.fake_B[0].cpu(), model.real_B[0].cpu(), xlims, zlims, epoch, opt.phase, opt.name)
-            #print(loss_beta)
+
 
         lossG[epoch-1] = loss_G / dataset_len
         lossD[epoch-1] = loss_D / dataset_len
@@ -166,4 +159,3 @@ if __name__ == '__main__':
     plt.title("lossD figure", fontsize=10)
     plt.savefig(loss_path)
     plt.show()
-    

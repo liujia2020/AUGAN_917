@@ -1,3 +1,17 @@
 # Default ignored files
 /shelf/
 /workspace.xml
+# 忽略 checkpoints 文件夹
+checkpoints/
+
+# 忽略 data 文件夹
+data/
+
+# 忽略 images 文件夹
+images/
+
+# 忽略 img_data1 文件夹
+img_data1/
+
+*.mat
+*.pth

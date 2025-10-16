@@ -261,126 +261,6 @@ class FeatureExtractor(nn.Module):
     def forward(self, x):
         return self.features(x)
 
-class ResnetGenerator(nn.Module):
-    """Resnet-based generator that consists of Resnet blocks between a few downsampling/upsampling operations.
-    """
-
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
-        """Construct a Resnet-based generator
-
-        Parameters:
-            input_nc (int)      -- the number of channels in input images
-            output_nc (int)     -- the number of channels in output images
-            ngf (int)           -- the number of filters in the last conv layer
-            norm_layer          -- normalization layer
-            use_dropout (bool)  -- if use dropout layers
-            n_blocks (int)      -- the number of ResNet blocks
-            padding_type (str)  -- the name of padding layer in conv layers: reflect | replicate | zero
-        """
-        assert(n_blocks >= 0)
-        super(ResnetGenerator, self).__init__()
-        if type(norm_layer) == functools.partial:
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
-
-        model = [nn.ReflectionPad2d(3),
-                 nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias),
-                 norm_layer(ngf),
-                 nn.ReLU(True)]
-
-        n_downsampling = 3
-        for i in range(n_downsampling):  # add downsampling layers
-            mult = 2 ** i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
-                      norm_layer(ngf * mult * 2),
-                      nn.ReLU(True)]
-
-        mult = 2 ** n_downsampling
-        for i in range(n_blocks):       # add ResNet blocks
-
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-
-        for i in range(n_downsampling):  # add upsampling layers
-            mult = 2 ** (n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                                         kernel_size=3, stride=2,
-                                         padding=1, output_padding=1,
-                                         bias=use_bias),
-                      norm_layer(int(ngf * mult / 2)),
-                      nn.ReLU(True)]
-        model += [nn.ReflectionPad2d(3)]
-        model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
-        # model += [nn.Tanh()]
-
-        self.model = nn.Sequential(*model)
-
-    def forward(self, input):
-        # print(input.shape)
-        """Standard forward"""
-        x1 = self.model(input)
-        return x1
-
-class ResnetBlock(nn.Module):
-    """Define a Resnet block"""
-
-    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-        """Initialize the Resnet block
-
-        A resnet block is a conv block with skip connections
-        We construct a conv block with build_conv_block function,
-        and implement skip connections in <forward> function.
-        """
-        super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
-        self.la = LocalAwareAttention()
-
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-        """Construct a convolutional block.
-
-        Parameters:
-            dim (int)           -- the number of channels in the conv layer.
-            padding_type (str)  -- the name of padding layer: reflect | replicate | zero
-            norm_layer          -- normalization layer
-            use_dropout (bool)  -- if use dropout layers.
-            use_bias (bool)     -- if the conv layer uses bias or not
-
-        Returns a conv block (with a conv layer, a normalization layer, and a non-linearity layer (ReLU))
-        """
-        conv_block = []
-        p = 0
-        if padding_type == 'reflect':
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == 'replicate':
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == 'zero':
-            p = 1
-        else:
-            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
-        if use_dropout:
-            conv_block += [nn.Dropout(0.5)]
-
-        p = 0
-        if padding_type == 'reflect':
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == 'replicate':
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == 'zero':
-            p = 1
-        else:
-            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
-
-        return nn.Sequential(*conv_block)
-
-    def forward(self, x):
-        """Forward function (with skip connections)"""
-        # print(x.shape)
-        x1 = self.conv_block(x)
-        out = x + x1  # add skip connections
-        return out
 
 class UnetGenerator(nn.Module):
     """Create a Unet-based generator"""
@@ -401,47 +281,21 @@ class UnetGenerator(nn.Module):
         super(UnetGenerator, self).__init__()
         # construct unet structure
         unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, inter=True)  # add the innermost layer
-        # model = [unet_block, LocalAwareAttention()]
-        # unet_block = nn.Sequential(*model)
-        # unet_block = UnetSkipConnectionBlock(ngf * 2 , ngf * 4, input_nc=None, submodule=None, norm_layer=norm_layer,innermost=True)
+
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        # model = [ResnetBlock(ngf * 8, padding_type="reflect", norm_layer=norm_layer, use_dropout=use_dropout,
-        #                        use_bias=use_bias)]
-        # model = []
 
-        # if use_sab:
-        #     unet_block = SpatialAttention(ngf*8)
-        # for i in range(num_down - 5):
 
         for i in range(num_downs - 5):          # add intermediate layers with ngf * 8 filters
             unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_dropout=use_dropout, inter=True)
 
-            # model = [unet_block, LocalAwareAttention()]
-            # unet_block = nn.Sequential(*model)
-
-        #     model += [ResnetBlock(ngf * 8, padding_type="reflect", norm_layer=norm_layer, use_dropout=use_dropout,
-        #                           use_bias=use_bias)]
-        # unet_block = nn.Sequential(*model)
-        # # gradually reduce the number of filters from ngf * 8 to ngf
-        # unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block,
-        #                                      norm_layer=norm_layer)
 
         unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer) # 32*24
         unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer) # 64*48
         unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer) # 128*96
         self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer 256*192
-
-        # unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block,
-        #                                      norm_layer=norm_layer, s1=32, s2=24, use_gb=True)  # 32*24
-        # unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block,
-        #                                      norm_layer=norm_layer, s1=64, s2=48,use_gb=True)  # 64*48
-        # unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer,
-        #                                      s1=128, s2=96,use_gb=True)  # 128*96
-        # self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True,
-        #                                      norm_layer=norm_layer,use_gb=False)  # add the outermost layer 256*192
 
     def forward(self, input):
 
@@ -486,7 +340,9 @@ class UnetSkipConnectionBlock(nn.Module):
         downnorm = norm_layer(inner_nc)
         uprelu = nn.LeakyReLU(0.2, False)
         upnorm = norm_layer(outer_nc)
-        # localatt = LocalAwareAttention()
+        # local spatial attention used when inter=True blocks request it
+        # define here so it can be referenced inside Sequential building below
+        localatt = LocalAwareAttention()
         self.pixelatt = PixelAwareAttention(inner_nc)
 
         if outermost:
@@ -526,11 +382,7 @@ class UnetSkipConnectionBlock(nn.Module):
                 model = down + [submodule] + up
 
         self.model = nn.Sequential(*model)
-        # self.model1 = nn.Sequential(*model1)
-        # self.sa = SpatialAttention()
-        # self.ca = ChannelAttention(input_nc)
         self.pa = PixelAwareAttention(input_nc)
-        # self.la = LocalAwareAttention()
 
 
 
@@ -581,7 +433,7 @@ class NLayerDiscriminator(nn.Module):
                 norm_layer(ndf * nf_mult),
                 nn.LeakyReLU(0.2, True)
             ]
-
+ 
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
         sequence += [
@@ -596,246 +448,6 @@ class NLayerDiscriminator(nn.Module):
     def forward(self, input):
         """Standard forward."""
         return self.model(input)
-
-class PixelDiscriminator(nn.Module):
-    """Defines a 1x1 PatchGAN discriminator (pixelGAN)"""
-
-    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d):
-        """Construct a 1x1 PatchGAN discriminator
-
-        Parameters:
-            input_nc (int)  -- the number of channels in input images
-            ndf (int)       -- the number of filters in the last conv layer
-            norm_layer      -- normalization layer
-        """
-        super(PixelDiscriminator, self).__init__()
-        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
-            use_bias = norm_layer.func != nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer != nn.InstanceNorm2d
-
-        self.net = [
-            nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1, padding=0),
-            nn.LeakyReLU(0.2, True),
-            nn.Conv2d(ndf, ndf * 2, kernel_size=1, stride=1, padding=0, bias=use_bias),
-            norm_layer(ndf * 2),
-            nn.LeakyReLU(0.2, True),
-            nn.Conv2d(ndf * 2, 1, kernel_size=1, stride=1, padding=0, bias=use_bias)]
-
-        self.net = nn.Sequential(*self.net)
-
-    def forward(self, input):
-        """Standard forward."""
-        return self.net(input)
-
-
-class ResidualBlock(nn.Module):
-    def __init__(self):
-        super(ResidualBlock,self).__init__()
-
-        self.model = [nn.Conv2d(64, 64, kernel_size=(5,3), padding=(2,1)),
-                      nn.BatchNorm2d(64),
-                      nn.ReLU(),
-                      nn.Conv2d(64, 64, kernel_size=(5, 3), padding=(2, 1)),
-                      nn.BatchNorm2d(64)
-                      ]
-        self.model = nn.Sequential(*self.model)
-        # self.conv1 = nn.Conv2d(64, 64, kernel_size=(5,3), padding=(2,1))
-        # self.conv2 = nn.Conv2d(64, 64, kernel_size=(5, 3), padding=(2, 1))
-        # self.bn1 = nn.BatchNorm2d(64)
-        # self.bn2 = nn.BatchNorm2d(64)
-        # self.relu = nn.ReLU()
-
-    def forward(self, x):
-        return self.model(x) + x
-
-
-
-class SRGenerator(nn.Module):
-    """Defines a super resolution GAN generator"""
-    def __init__(self):
-        super(SRGenerator, self).__init__()
-
-        self.model = [nn.Conv2d(1, 64, kernel_size=3, padding=1),
-                      nn.ReLU(),
-                      nn.Conv2d(64, 64, kernel_size=(5, 3), padding=(2, 1)),
-                      nn.BatchNorm2d(64),
-                      nn.ReLU(),
-                      ResidualBlock(),
-                      ResidualBlock(),
-                      ResidualBlock(),
-                      ResidualBlock(),
-                      ResidualBlock(),
-                      ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      # ResidualBlock(),
-                      nn.Conv2d(64, 64, kernel_size=3, padding=1),
-                      nn.BatchNorm2d(64),
-                      ]
-        self.model = nn.Sequential(*self.model)
-
-        # self.conv1 = nn.Conv2d(1, 64, kernel_size=(5, 3), padding=(2, 1))
-        # self.conv2 = nn.Conv2d(64, 64, kernel_size=(5, 3), padding=(2, 1))
-        self.conv3 = nn.Conv2d(64, 1, kernel_size=3, padding=1)
-        self.relu = nn.ReLU()
-        self.bn = nn.BatchNorm2d(64)
-
-        # self.res_block = [ResidualBlock()] * 5
-        # self.res_block = nn.Sequential(*self.res_block)
-        # print(self.res_block)
-        # self.res_block1 = ResidualBlock()
-        # self.res_block2 = ResidualBlock()
-        # self.res_block3 = ResidualBlock()
-        # self.res_block4 = ResidualBlock()
-        # self.res_block5 = ResidualBlock()
-
-
-    def forward(self, x):
-        # print(x.shape)
-        # print(self.conv1)
-        # x1 = self.conv1(x)
-        # x1 = self.relu(x1)
-        #
-        # x2 = self.res_block1(x1)
-        # x3 = self.res_block2(x2)
-        # x4 = self.res_block3(x3)
-        # x5 = self.res_block4(x4)
-        # x6 = self.res_block5(x5)
-        # # x2 = self.res_block(x)
-        # x7 = self.conv2(x6)
-        # x7 = self.bn(x7)
-        x1 = self.model(x)
-        x2 = x1 + x
-        x2 = self.conv3(x2)
-
-        return x2
-
-class SRDiscriminator(nn.Module):
-    """Defines a super resolution GAN discriminator"""
-    def __init__(self):
-        super(SRDiscriminator, self).__init__()
-
-        # self.net = [nn.Conv2d(1, 64, kernel_size=3, stride=1),
-        #             nn.LeakyReLU(),
-        #             self.conv_block(64, 64, 2),
-        #             self.conv_block(64, 128, 1),
-        #             self.conv_block(128, 128, 2),
-        #             self.conv_block(128, 256, 1),
-        #             self.conv_block(256, 256, 2),
-        #             self.conv_block(256, 512, 1),
-        #             self.conv_block(512, 512, 2),
-        #             nn.Conv2d(512, 1024, kernel_size=1),
-        #             nn.LeakyReLU(),
-        #             nn.Conv2d(1024, 1, kernel_size=1)
-        #             ]
-        # self.net = nn.Sequential(*self.net)
-
-        self.conv1 = nn.Conv2d(2, 64, kernel_size=3, stride=1)
-
-        self.con_block1 = self.conv_block(64, 64, 2)
-        self.con_block2 = self.conv_block(64, 128, 1)
-        self.con_block3 = self.conv_block(128, 128, 2)
-        self.con_block4 = self.conv_block(128, 256, 1)
-        self.con_block5 = self.conv_block(256, 256, 2)
-        self.con_block6 = self.conv_block(256, 512, 1)
-        self.con_block7 = self.conv_block(512, 512, 2)
-
-        self.dense1 = nn.Conv2d(512, 1024, kernel_size=1)
-        self.dense2 = nn.Conv2d(1024, 1, kernel_size=1)
-
-        self.Lrelu = nn.LeakyReLU()
-
-    def conv_block(self, in_num, out_num, stride):
-        con_block = []
-        con_block += [nn.Conv2d(in_num, out_num, kernel_size=3, stride=stride)]
-        con_block += [nn.BatchNorm2d(out_num), nn.LeakyReLU()]
-
-        return nn.Sequential(*con_block)
-
-    def forward(self, x):
-        # print(x.shape)
-        x1 = self.conv1(x)
-        x1 = self.Lrelu(x1)
-
-        x2 = self.con_block1(x1)
-        x3 = self.con_block2(x2)
-        x4 = self.con_block3(x3)
-        x5 = self.con_block4(x4)
-        x6 = self.con_block5(x5)
-        x7 = self.con_block6(x6)
-        x8 = self.con_block7(x7)
-
-        x9 = self.dense1(x8)
-        x9 = self.Lrelu(x9)
-        x10 = self.dense2(x9)
-
-        return x10
-
-class VDCGAN(nn.Module):
-    def __init__(self):
-        """Defines a very deep convolutional nerual network"""
-        super(VDCGAN, self).__init__()
-        # First layer
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=4, stride=2, padding=1, bias=False)
-
-        # Residual layer
-        conv_block1 = []
-        for i in range(3):
-            j1 = 64* (2 **i)
-            j2 = 64* (2 **(i+1))
-            conv_block1.append(nn.Conv2d(j1, j2, kernel_size=4, stride=2, padding=1, bias=False))
-            conv_block1.append(nn.ReLU(inplace=True))
-        self.conv_block1 = nn.Sequential(*conv_block1)
-
-        conv_block2 = []
-        for i in range(3):
-            j1 = 64 * (2 **(3-i))
-            j2 = 64 * (2 **(3-i-1))
-            conv_block2.append(nn.ConvTranspose2d(j1, j2, kernel_size=4, stride=2, padding=1, bias=False))
-            conv_block2.append(nn.ReLU(inplace=True))
-        self.conv_block2 = nn.Sequential(*conv_block2)
-
-
-        # last layer
-        self.conv2 = nn.ConvTranspose2d(64, 1, kernel_size=4, stride=2, padding=1, bias=False)
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.conv_block1(out)
-        out = self.conv_block2(out)
-        out = self.conv2(out)
-        return out
-
-
 
 
 

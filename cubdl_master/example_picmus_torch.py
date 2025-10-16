@@ -4,9 +4,9 @@
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
-from das_torch import DAS_PW
+from cubdl_master.das_torch import DAS_PW
 from cubdl_master.PlaneWaveData import PICMUSData
-from PixelGrid import make_pixel_grid
+from cubdl_master.PixelGrid import make_pixel_grid
 
 eps = 2.2204e-16
 

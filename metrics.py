@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 import math
-from PixelGrid import make_pixel_grid
 import pytorch_ssim
 import torch
 from sklearn import metrics
@@ -268,10 +267,9 @@ class image_evaluation():
         self.PSNR = psnr(img1, img2)
         self.MI = MI(img1, img2)
 
-        ima1 = torch.from_numpy(img1)
-        ima2 = torch.from_numpy(img2)
-        ima1 = torch.unsqueeze(ima1, 1)
-        ima2 = torch.unsqueeze(ima2, 1)
+        # pytorch_ssim expects 4D tensors (N,C,H,W)
+        ima1 = torch.from_numpy(img1).unsqueeze(0).unsqueeze(0).float()
+        ima2 = torch.from_numpy(img2).unsqueeze(0).unsqueeze(0).float()
         self.SSIM = pytorch_ssim.ssim(ima1, ima2)
         #print(CR1)
         # print("average:" + str(value/9))
